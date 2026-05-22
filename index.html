@@ -1,0 +1,1224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sleeper League Analyzer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        sleeper: {
+                            dark: '#1a1d2e',
+                            card: '#232538',
+                            accent: '#00b4d8',
+                            highlight: '#7c3aed',
+                            success: '#10b981',
+                            warning: '#f59e0b',
+                            danger: '#ef4444',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+        .fade-in { animation: fadeIn 0.3s ease-in; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .spinner { border: 3px solid rgba(255,255,255,0.1); border-top-color: #00b4d8; border-radius: 50%; width: 2rem; height: 2rem; animation: spin 0.8s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .stat-card:hover { transform: translateY(-2px); transition: transform 0.2s; }
+        .progress-bar { transition: width 0.3s ease; }
+    </style>
+</head>
+<body class="bg-sleeper-dark text-gray-100 min-h-screen">
+    <div id="app" class="max-w-4xl mx-auto px-4 py-6">
+        <!-- Header -->
+        <header class="text-center mb-8">
+            <h1 class="text-3xl md:text-4xl font-bold bg-gradient-to-r from-sleeper-accent to-sleeper-highlight bg-clip-text text-transparent">
+                Sleeper League Analyzer
+            </h1>
+            <p class="text-gray-400 mt-2 text-sm md:text-base">Multi-year draft hits, waiver busts, and trade insights — all from your browser.</p>
+        </header>
+
+        <!-- Search Section -->
+        <section id="search-section" class="mb-8">
+            <div class="bg-sleeper-card rounded-xl p-6 shadow-lg">
+                <label class="block text-sm font-medium text-gray-300 mb-2">Enter your Sleeper username</label>
+                <div class="flex gap-3">
+                    <input type="text" id="username-input" placeholder="e.g. sleeperuser"
+                        class="flex-1 bg-sleeper-dark border border-gray-600 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-sleeper-accent transition-colors">
+                    <button onclick="lookupUser()" id="lookup-btn"
+                        class="bg-sleeper-accent hover:bg-cyan-500 text-white font-semibold px-6 py-3 rounded-lg transition-colors whitespace-nowrap">
+                        Look Up
+                    </button>
+                </div>
+                <div id="user-error" class="text-sleeper-danger text-sm mt-2 hidden"></div>
+            </div>
+        </section>
+
+        <!-- Loading Indicator -->
+        <div id="loading" class="hidden flex flex-col items-center justify-center py-12">
+            <div class="spinner"></div>
+            <p id="loading-text" class="text-gray-400 mt-4 text-sm">Loading...</p>
+            <div id="progress-container" class="hidden w-64 mt-3">
+                <div class="w-full bg-sleeper-dark rounded-full h-2">
+                    <div id="progress-bar" class="progress-bar bg-sleeper-accent h-2 rounded-full" style="width:0%"></div>
+                </div>
+                <p id="progress-detail" class="text-xs text-gray-500 mt-1 text-center"></p>
+            </div>
+        </div>
+
+        <!-- League Selection -->
+        <section id="league-section" class="mb-8 hidden fade-in">
+            <div class="bg-sleeper-card rounded-xl p-6 shadow-lg">
+                <h2 class="text-xl font-bold mb-2">Select a League</h2>
+                <p class="text-gray-400 text-xs mb-4">Pick any season — the app will automatically find all connected seasons for multi-year analysis.</p>
+                <div class="mb-4">
+                    <select id="season-select" onchange="fetchLeagues()"
+                        class="bg-sleeper-dark border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-sleeper-accent">
+                    </select>
+                </div>
+                <div id="leagues-list" class="space-y-2"></div>
+            </div>
+        </section>
+
+        <!-- Results Section -->
+        <section id="results-section" class="hidden fade-in space-y-6">
+            <!-- League Header -->
+            <div class="bg-sleeper-card rounded-xl p-6 shadow-lg">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h2 id="league-name" class="text-xl font-bold"></h2>
+                        <p id="league-meta" class="text-gray-400 text-sm mt-1"></p>
+                    </div>
+                    <button onclick="goBack()" class="text-gray-400 hover:text-white text-sm underline">← Back</button>
+                </div>
+            </div>
+
+            <!-- Multi-year summary cards -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div class="stat-card bg-sleeper-card rounded-xl p-4 text-center shadow-lg">
+                    <div id="stat-seasons" class="text-2xl font-bold text-sleeper-accent">0</div>
+                    <div class="text-xs text-gray-400 mt-1">Seasons Analyzed</div>
+                </div>
+                <div class="stat-card bg-sleeper-card rounded-xl p-4 text-center shadow-lg">
+                    <div id="stat-total-picks" class="text-2xl font-bold text-sleeper-highlight">0</div>
+                    <div class="text-xs text-gray-400 mt-1">Draft Picks</div>
+                </div>
+                <div class="stat-card bg-sleeper-card rounded-xl p-4 text-center shadow-lg">
+                    <div id="stat-total-waivers" class="text-2xl font-bold text-sleeper-success">0</div>
+                    <div class="text-xs text-gray-400 mt-1">Waiver Moves</div>
+                </div>
+                <div class="stat-card bg-sleeper-card rounded-xl p-4 text-center shadow-lg">
+                    <div id="stat-total-trades" class="text-2xl font-bold text-sleeper-warning">0</div>
+                    <div class="text-xs text-gray-400 mt-1">Trades</div>
+                </div>
+            </div>
+
+            <!-- Season Breakdown -->
+            <div class="bg-sleeper-card rounded-xl p-6 shadow-lg">
+                <h3 class="text-lg font-bold mb-2 flex items-center gap-2">
+                    <span>📅</span> Season-by-Season Breakdown
+                </h3>
+                <div id="season-breakdown" class="space-y-3"></div>
+            </div>
+
+            <!-- Draft Pick Hit Rates -->
+            <div class="bg-sleeper-card rounded-xl p-6 shadow-lg">
+                <h3 class="text-lg font-bold mb-2 flex items-center gap-2">
+                    <span>🎯</span> Draft Pick Hit Rates
+                </h3>
+                <p class="text-gray-400 text-xs mb-4">A "hit" = drafted player with 4+ elite weekly finishes who wasn't dropped. Thresholds: RB/WR top-10, QB/TE top-5, K/DEF top-2. "Bust" = dropped to FA. Excludes last 2 weeks.</p>
+                <div id="draft-hits" class="space-y-3"></div>
+            </div>
+
+            <!-- Draft Bust Rate by Round (DISABLED) -->
+            <!--
+            <div class="bg-sleeper-card rounded-xl p-6 shadow-lg">
+                <h3 class="text-lg font-bold mb-2 flex items-center gap-2">
+                    <span>📉</span> Draft Bust Rate by Round
+                </h3>
+                <p class="text-gray-400 text-xs mb-4">What % of picks per round were dropped to free agency? (Excluding injured/inactive players and last 2 weeks.)</p>
+                <div id="draft-round-busts" class="space-y-2"></div>
+            </div>
+            -->
+
+            <!-- Waiver Wire Gems -->
+            <div class="bg-sleeper-card rounded-xl p-6 shadow-lg">
+                <h3 class="text-lg font-bold mb-2 flex items-center gap-2">
+                    <span>💎</span> Waiver Wire Gems
+                </h3>
+                <p class="text-gray-400 text-xs mb-4">Best waiver/FA pickups by player. A "gem" = 4+ elite weekly finishes and kept on roster. Thresholds: RB/WR top-10, QB/TE top-5, K/DEF top-2.</p>
+                <div id="waiver-gems" class="space-y-3"></div>
+            </div>
+
+            <!-- Waiver Wire Busts / FAAB Efficiency -->
+            <div class="bg-sleeper-card rounded-xl p-6 shadow-lg">
+                <h3 class="text-lg font-bold mb-2 flex items-center gap-2">
+                    <span>🔥</span> FAAB Money Burners
+                </h3>
+                <p class="text-gray-400 text-xs mb-4">Biggest FAAB dollars wasted on players who were ultimately dropped. Sorted by $ spent.</p>
+                <div id="waiver-busts" class="space-y-3"></div>
+            </div>
+
+            <!-- Waiver Hit Rate -->
+            <div class="bg-sleeper-card rounded-xl p-6 shadow-lg">
+                <h3 class="text-lg font-bold mb-2 flex items-center gap-2">
+                    <span>📊</span> Waiver Hit Rate
+                </h3>
+                <p class="text-gray-400 text-xs mb-4">What % of waiver/FA pickups produced 4+ elite weekly finishes? Thresholds: RB/WR top-10, QB/TE top-5, K/DEF top-2.</p>
+                <div id="waiver-hit-rate" class="space-y-2"></div>
+            </div>
+
+            <!-- Trade Volume (kept from before) -->
+            <div class="bg-sleeper-card rounded-xl p-6 shadow-lg">
+                <h3 class="text-lg font-bold mb-2 flex items-center gap-2">
+                    <span>🤝</span> Trade Volume (All Seasons)
+                </h3>
+                <p class="text-gray-400 text-xs mb-4">Who can't stop making deals?</p>
+                <div id="trade-volume" class="space-y-2"></div>
+            </div>
+
+            <!-- Kingmaker -->
+            <div class="bg-sleeper-card rounded-xl p-6 shadow-lg">
+                <h3 class="text-lg font-bold mb-2 flex items-center gap-2">
+                    <span>👑</span> The Kingmaker (All Seasons)
+                </h3>
+                <p class="text-gray-400 text-xs mb-4">Who trades with the eventual champion most across all seasons?</p>
+                <div id="kingmaker" class="space-y-2"></div>
+            </div>
+
+        </section>
+    </div>
+
+    <script>
+    // ============ STATE ============
+    const API_BASE = 'https://api.sleeper.app/v1';
+    let currentUser = null;
+    let currentLeagues = [];
+    let playerCache = null;
+
+    // Multi-year data keyed by season
+    let seasonData = {}; // { '2023': { league, users, rosters, drafts, draftPicks, matchups, transactions, winner } }
+
+    // ============ RATE LIMITER ============
+    // Keeps us well under 1000 calls/min. Max 8 concurrent, 80ms between dispatches.
+    class RateLimiter {
+        constructor(maxConcurrent = 8, minDelayMs = 80) {
+            this.maxConcurrent = maxConcurrent;
+            this.minDelayMs = minDelayMs;
+            this.active = 0;
+            this.queue = [];
+            this.totalQueued = 0;
+            this.totalDone = 0;
+            this.onProgress = null;
+        }
+
+        async fetch(path) {
+            return new Promise((resolve, reject) => {
+                this.queue.push({ path, resolve, reject });
+                this.totalQueued++;
+                this._drain();
+            });
+        }
+
+        async _drain() {
+            if (this.active >= this.maxConcurrent || this.queue.length === 0) return;
+            this.active++;
+            const { path, resolve, reject } = this.queue.shift();
+
+            try {
+                await this._delay(this.minDelayMs);
+                const res = await fetch(`${API_BASE}${path}`);
+                if (!res.ok) throw new Error(`API ${res.status}: ${path}`);
+                const data = await res.json();
+                this.totalDone++;
+                if (this.onProgress) this.onProgress(this.totalDone, this.totalQueued);
+                resolve(data);
+            } catch (e) {
+                this.totalDone++;
+                if (this.onProgress) this.onProgress(this.totalDone, this.totalQueued);
+                resolve(null); // resolve with null on error so we don't break Promise.all
+            } finally {
+                this.active--;
+                this._drain();
+            }
+        }
+
+        _delay(ms) {
+            return new Promise(r => setTimeout(r, ms));
+        }
+
+        reset() {
+            this.totalQueued = 0;
+            this.totalDone = 0;
+        }
+    }
+
+    const rateLimiter = new RateLimiter(8, 80);
+
+    // ============ UI HELPERS ============
+    function show(id) { document.getElementById(id).classList.remove('hidden'); }
+    function hide(id) { document.getElementById(id).classList.add('hidden'); }
+    function setLoading(text) {
+        document.getElementById('loading-text').textContent = text;
+        show('loading');
+    }
+    function hideLoading() {
+        hide('loading');
+        hide('progress-container');
+    }
+    function showProgress(done, total) {
+        show('progress-container');
+        const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+        document.getElementById('progress-bar').style.width = pct + '%';
+        document.getElementById('progress-detail').textContent = `${done} / ${total} API calls`;
+    }
+
+    function getTeamName(rosterId, season) {
+        const sd = seasonData[season] || Object.values(seasonData).find(s => s.rosters?.some(r => r.roster_id === rosterId));
+        if (!sd) return `Team ${rosterId}`;
+        const roster = sd.rosters.find(r => r.roster_id === rosterId);
+        if (!roster) return `Team ${rosterId}`;
+        const user = sd.users.find(u => u.user_id === roster.owner_id);
+        if (!user) return `Team ${rosterId}`;
+        const teamName = user.metadata?.team_name || user.display_name || user.username;
+        const username = user.username || user.display_name || '';
+        // If team name is the same as username, just show "username (year)"
+        if (teamName === username) return `${username} (${season})`;
+        return `${teamName} — @${username} (${season})`;
+    }
+
+    // Cross-season name lookup by owner_id (users keep the same user_id across seasons)
+    // Shows: "Team Name (@username)" or just "@username" if no custom team name
+    function getManagerName(ownerId) {
+        // Collect info from the most recent season for this owner
+        const seasons = Object.keys(seasonData).sort().reverse();
+        for (const season of seasons) {
+            const sd = seasonData[season];
+            const user = sd.users?.find(u => u.user_id === ownerId);
+            if (user) {
+                const teamName = user.metadata?.team_name;
+                const username = user.username || user.display_name || `Manager ${ownerId}`;
+                if (teamName && teamName !== username) {
+                    return `${teamName} (@${username})`;
+                }
+                return `@${username}`;
+            }
+        }
+        return `Manager ${ownerId}`;
+    }
+
+    function getPlayerName(playerId) {
+        if (!playerCache) return playerId;
+        const p = playerCache[playerId];
+        if (!p) return playerId;
+        return `${p.first_name} ${p.last_name}`;
+    }
+
+    function getPlayerShort(playerId) {
+        if (!playerCache) return playerId;
+        const p = playerCache[playerId];
+        if (!p) return playerId;
+        const pos = p.position || '';
+        return `${p.first_name?.[0] || ''}. ${p.last_name} (${pos})`;
+    }
+
+    // ============ USER LOOKUP ============
+    async function lookupUser() {
+        const input = document.getElementById('username-input').value.trim();
+        if (!input) return;
+
+        hide('league-section');
+        hide('results-section');
+        document.getElementById('user-error').classList.add('hidden');
+        setLoading('Looking up user...');
+
+        try {
+            const res = await fetch(`${API_BASE}/user/${input}`);
+            if (!res.ok) throw new Error('not found');
+            const user = await res.json();
+            if (!user || !user.user_id) throw new Error('User not found');
+            currentUser = user;
+
+            const seasonSelect = document.getElementById('season-select');
+            seasonSelect.innerHTML = '';
+            const currentYear = new Date().getFullYear();
+            for (let y = currentYear; y >= 2018; y--) {
+                const opt = document.createElement('option');
+                opt.value = y;
+                opt.textContent = y;
+                seasonSelect.appendChild(opt);
+            }
+
+            await fetchLeagues();
+        } catch (e) {
+            hideLoading();
+            const errEl = document.getElementById('user-error');
+            errEl.textContent = `Could not find user "${input}". Check the username and try again.`;
+            errEl.classList.remove('hidden');
+        }
+    }
+
+    // ============ LEAGUES ============
+    async function fetchLeagues() {
+        const season = document.getElementById('season-select').value;
+        setLoading(`Fetching ${season} leagues...`);
+
+        try {
+            const res = await fetch(`${API_BASE}/user/${currentUser.user_id}/leagues/nfl/${season}`);
+            const leagues = await res.json();
+            currentLeagues = leagues || [];
+            renderLeagues();
+        } catch (e) {
+            document.getElementById('leagues-list').innerHTML = '<p class="text-gray-400">No leagues found.</p>';
+        }
+
+        hideLoading();
+        show('league-section');
+    }
+
+    function renderLeagues() {
+        const container = document.getElementById('leagues-list');
+        if (currentLeagues.length === 0) {
+            container.innerHTML = '<p class="text-gray-400">No leagues found for this season.</p>';
+            return;
+        }
+        container.innerHTML = currentLeagues.map(league => `
+            <button onclick="selectLeague('${league.league_id}')"
+                class="w-full text-left bg-sleeper-dark hover:bg-gray-700 rounded-lg p-4 transition-colors flex items-center justify-between group">
+                <div>
+                    <div class="font-semibold group-hover:text-sleeper-accent transition-colors">${league.name}</div>
+                    <div class="text-xs text-gray-400">${league.total_rosters} teams · ${league.season} · ${league.status}</div>
+                </div>
+                <svg class="w-5 h-5 text-gray-500 group-hover:text-sleeper-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                </svg>
+            </button>
+        `).join('');
+    }
+
+    // ============ MULTI-YEAR LEAGUE CHAIN ============
+    async function selectLeague(leagueId) {
+        hide('league-section');
+        setLoading('Discovering league history...');
+        seasonData = {};
+        // Clear positional ranking cache from previous analysis
+        Object.keys(_posRankCache).forEach(k => delete _posRankCache[k]);
+
+        try {
+            // Step 1: Chain backwards via previous_league_id to find all seasons
+            const leagueChain = await discoverLeagueChain(leagueId);
+            setLoading(`Found ${leagueChain.length} season(s). Loading data...`);
+
+            // Step 2: Load player database if needed
+            if (!playerCache) {
+                setLoading('Loading player database (~5MB, one-time download)...');
+                try {
+                    const res = await fetch(`${API_BASE}/players/nfl`);
+                    playerCache = await res.json();
+                } catch (e) {
+                    console.warn('Player DB failed, using IDs');
+                    playerCache = {};
+                }
+            }
+
+            // Step 3: For each season, fetch all required data with rate limiting
+            rateLimiter.reset();
+            rateLimiter.onProgress = showProgress;
+            show('progress-container');
+
+            for (const league of leagueChain) {
+                await loadSeasonData(league);
+            }
+
+            hideLoading();
+            renderResults();
+            show('results-section');
+        } catch (e) {
+            hideLoading();
+            console.error(e);
+            alert('Error loading league data: ' + e.message);
+            show('league-section');
+        }
+    }
+
+    async function discoverLeagueChain(startLeagueId) {
+        const chain = [];
+        let currentId = startLeagueId;
+
+        // Walk forward first - check if there's a newer season
+        // The API doesn't have a "next_league_id", so we start from what we have
+        // and go backwards via previous_league_id
+        while (currentId) {
+            try {
+                const res = await fetch(`${API_BASE}/league/${currentId}`);
+                if (!res.ok) break;
+                const league = await res.json();
+                if (!league || !league.league_id) break;
+                chain.push(league);
+                currentId = league.previous_league_id;
+                // Safety: stop at 10 seasons max
+                if (chain.length >= 10) break;
+            } catch (e) {
+                break;
+            }
+        }
+
+        // chain is newest→oldest, reverse to oldest→newest for display
+        return chain.reverse();
+    }
+
+    async function loadSeasonData(league) {
+        const lid = league.league_id;
+        const season = league.season;
+        setLoading(`Loading ${season} season data...`);
+
+        // Parallel fetches for core data
+        const [users, rosters, winnersBracket, drafts] = await Promise.all([
+            rateLimiter.fetch(`/league/${lid}/users`),
+            rateLimiter.fetch(`/league/${lid}/rosters`),
+            rateLimiter.fetch(`/league/${lid}/winners_bracket`),
+            rateLimiter.fetch(`/league/${lid}/drafts`)
+        ]);
+
+        // Fetch draft picks for each draft
+        let allDraftPicks = [];
+        if (drafts && drafts.length > 0) {
+            const pickResults = await Promise.all(
+                drafts.map(d => rateLimiter.fetch(`/draft/${d.draft_id}/picks`))
+            );
+            pickResults.forEach(picks => {
+                if (picks) allDraftPicks.push(...picks);
+            });
+        }
+
+        // Fetch matchups for all weeks (need this to determine starters)
+        const totalWeeks = 18;
+        const matchupPromises = [];
+        for (let w = 1; w <= totalWeeks; w++) {
+            matchupPromises.push(rateLimiter.fetch(`/league/${lid}/matchups/${w}`));
+        }
+        const matchupsByWeek = await Promise.all(matchupPromises);
+
+        // Fetch transactions for all weeks
+        const txPromises = [];
+        for (let w = 1; w <= totalWeeks; w++) {
+            txPromises.push(rateLimiter.fetch(`/league/${lid}/transactions/${w}`));
+        }
+        const txByWeek = await Promise.all(txPromises);
+
+        // Process transactions
+        const allTransactions = [];
+        (txByWeek || []).forEach((weekTxs, idx) => {
+            if (!weekTxs) return;
+            weekTxs.forEach(tx => {
+                tx._week = idx + 1;
+                tx._season = season;
+            });
+            allTransactions.push(...weekTxs);
+        });
+
+        // Process matchups into a lookup: { week: { roster_id: { starters, players, players_points, points } } }
+        const matchups = {};
+        (matchupsByWeek || []).forEach((weekData, idx) => {
+            if (!weekData) return;
+            const week = idx + 1;
+            matchups[week] = {};
+            weekData.forEach(m => {
+                matchups[week][m.roster_id] = {
+                    starters: m.starters || [],
+                    players: m.players || [],
+                    players_points: m.players_points || {},
+                    points: m.points || 0
+                };
+            });
+        });
+
+        // Determine winner
+        const winner = determineWinner(winnersBracket, rosters || []);
+
+        seasonData[season] = {
+            league,
+            users: users || [],
+            rosters: rosters || [],
+            drafts: drafts || [],
+            draftPicks: allDraftPicks,
+            matchups,
+            transactions: allTransactions,
+            winner
+        };
+    }
+
+    function determineWinner(bracket, rosters) {
+        if (!bracket || bracket.length === 0) {
+            const sorted = [...rosters].sort((a, b) => {
+                const diff = (b.settings?.wins || 0) - (a.settings?.wins || 0);
+                return diff !== 0 ? diff : (b.settings?.fpts || 0) - (a.settings?.fpts || 0);
+            });
+            return sorted[0]?.roster_id || null;
+        }
+        const champMatch = bracket.find(m => m.p === 1);
+        if (champMatch?.w) return champMatch.w;
+        const sorted = [...bracket].sort((a, b) => b.r - a.r);
+        for (const m of sorted) { if (m.w) return m.w; }
+        return rosters.sort((a, b) => (b.settings?.wins || 0) - (a.settings?.wins || 0))[0]?.roster_id || null;
+    }
+
+    // ============ ANALYSIS FUNCTIONS ============
+    const EXCLUDE_LAST_WEEKS = 2; // ignore last 2 weeks (weird roster moves)
+
+    // Get the last meaningful week for a season (last week with matchup data minus exclusion)
+    function getLastAnalysisWeek(season) {
+        const sd = seasonData[season];
+        if (!sd) return 16;
+        let lastWeek = 0;
+        for (let w = 1; w <= 18; w++) {
+            if (sd.matchups[w] && Object.keys(sd.matchups[w]).length > 0) lastWeek = w;
+        }
+        return Math.max(1, lastWeek - EXCLUDE_LAST_WEEKS);
+    }
+
+    function getPlayerPosition(playerId) {
+        if (!playerCache || !playerCache[playerId]) return null;
+        return playerCache[playerId].position || null;
+    }
+
+    // Position-tiered top-N thresholds:
+    // RB/WR = top 10, QB/TE = top 5, K/DEF = top 2
+    const POS_TOP_N = { 'RB': 10, 'WR': 10, 'QB': 5, 'TE': 5, 'K': 2, 'DEF': 2 };
+    function getEffectiveTopN(playerId, defaultTopN) {
+        const pos = getPlayerPosition(playerId);
+        if (!pos) return defaultTopN;
+        return POS_TOP_N[pos] ?? defaultTopN;
+    }
+
+    function isExcludedPosition(playerId) {
+        const pos = getPlayerPosition(playerId);
+        return pos && (pos === 'K' || pos === 'DEF');
+    }
+
+    // Build positional rankings for a given season+week.
+    // Returns { 'QB': [{playerId, points}, ...sorted desc], 'RB': [...], ... }
+    // Caches results for performance.
+    const _posRankCache = {};
+    function getPositionalRankings(season, week) {
+        const key = `${season}-${week}`;
+        if (_posRankCache[key]) return _posRankCache[key];
+
+        const sd = seasonData[season];
+        if (!sd || !sd.matchups[week]) { _posRankCache[key] = {}; return {}; }
+
+        const byPos = {};
+        const weekData = sd.matchups[week];
+
+        for (const rid of Object.keys(weekData)) {
+            const rosterData = weekData[rid];
+            const pp = rosterData.players_points || {};
+            for (const [pid, pts] of Object.entries(pp)) {
+                if (pts == null || pts === 0) continue;
+                const pos = getPlayerPosition(pid);
+                if (!pos) continue;
+                if (!byPos[pos]) byPos[pos] = [];
+                byPos[pos].push({ playerId: pid, points: pts });
+            }
+        }
+
+        // Sort each position descending by points
+        for (const pos of Object.keys(byPos)) {
+            byPos[pos].sort((a, b) => b.points - a.points);
+        }
+
+        _posRankCache[key] = byPos;
+        return byPos;
+    }
+
+    // Check if a player finished top-N at their position in a given week (league-wide)
+    function isTopNAtPosition(season, week, playerId, topN = 20) {
+        const pos = getPlayerPosition(playerId);
+        if (!pos) return false;
+        const rankings = getPositionalRankings(season, week);
+        if (!rankings[pos]) return false;
+        const idx = rankings[pos].findIndex(r => r.playerId === playerId);
+        return idx >= 0 && idx < topN;
+    }
+
+    // Check if a player was rostered on a given team in a given week
+    function isRosteredOnTeam(season, rosterId, week) {
+        const sd = seasonData[season];
+        if (!sd || !sd.matchups[week]) return null; // no data for this week
+        const rosterData = sd.matchups[week][rosterId];
+        if (!rosterData) return null;
+        return rosterData.players || [];
+    }
+
+    // Was a player dropped to FA/waivers from a specific roster during the season?
+    // Returns the week it happened, or null if never dropped.
+    function getDropWeek(season, rosterId, playerId) {
+        const sd = seasonData[season];
+        if (!sd) return null;
+        const lastWeek = getLastAnalysisWeek(season);
+
+        // Look through transactions for a drop of this player from this roster
+        for (const tx of sd.transactions) {
+            if (tx._week > lastWeek) continue; // ignore drops in excluded weeks
+            if (tx.status !== 'complete') continue;
+            if (!tx.drops) continue;
+            if (tx.drops[playerId] === rosterId) {
+                // This player was dropped from this roster
+                // Make sure it's not a trade (trades also show drops)
+                if (tx.type !== 'trade') return tx._week;
+            }
+        }
+        return null;
+    }
+
+    // Determine if a player scored points in the league at all (rostered anywhere with >0 pts)
+    // Used to filter out truly inactive players (IR all year, retired, etc.)
+    function playerScoredInLeague(season, playerId) {
+        const sd = seasonData[season];
+        if (!sd) return false;
+        for (let w = 1; w <= 18; w++) {
+            const weekData = sd.matchups[w];
+            if (!weekData) continue;
+            for (const rid of Object.keys(weekData)) {
+                const pp = weekData[rid].players_points;
+                if (pp && pp[playerId] && pp[playerId] > 0) return true;
+            }
+        }
+        return false;
+    }
+
+    // Get the number of top-20 positional weeks for a player on a roster
+    // from acquisitionWeek to lastAnalysisWeek, only counting weeks they were rostered
+    function getHitWeeks(season, rosterId, playerId, acquisitionWeek, topN = 20) {
+        const sd = seasonData[season];
+        if (!sd) return { topWeeks: 0, rosteredWeeks: 0, totalPoints: 0 };
+        const lastWeek = getLastAnalysisWeek(season);
+        let topWeeks = 0;
+        let rosteredWeeks = 0;
+        let totalPoints = 0;
+
+        for (let w = acquisitionWeek; w <= lastWeek; w++) {
+            const weekData = sd.matchups[w];
+            if (!weekData || !weekData[rosterId]) continue;
+            const roster = weekData[rosterId].players || [];
+            if (!roster.includes(playerId)) continue;
+            rosteredWeeks++;
+            const pts = (weekData[rosterId].players_points || {})[playerId] || 0;
+            totalPoints += pts;
+            if (isTopNAtPosition(season, w, playerId, topN)) topWeeks++;
+        }
+
+        return { topWeeks, rosteredWeeks, totalPoints };
+    }
+
+    // ============ RENDER RESULTS ============
+    function renderResults() {
+        const seasons = Object.keys(seasonData).sort();
+        const firstSeason = seasonData[seasons[0]];
+
+        // Header
+        document.getElementById('league-name').textContent = firstSeason.league.name;
+        document.getElementById('league-meta').textContent = `${seasons.join(', ')} · ${seasons.length} season(s) · ${firstSeason.league.total_rosters} teams`;
+
+        // Summary stats
+        let totalPicks = 0, totalWaivers = 0, totalTrades = 0;
+        for (const sd of Object.values(seasonData)) {
+            totalPicks += sd.draftPicks.length;
+            totalTrades += sd.transactions.filter(t => t.type === 'trade' && t.status === 'complete').length;
+            totalWaivers += sd.transactions.filter(t => (t.type === 'waiver' || t.type === 'free_agent') && t.status === 'complete').length;
+        }
+
+        document.getElementById('stat-seasons').textContent = seasons.length;
+        document.getElementById('stat-total-picks').textContent = totalPicks;
+        document.getElementById('stat-total-waivers').textContent = totalWaivers;
+        document.getElementById('stat-total-trades').textContent = totalTrades;
+
+        renderSeasonBreakdown();
+        renderDraftHits();
+        // renderDraftBustsByRound(); // DISABLED
+        renderWaiverGems();
+        renderWaiverBusts();
+        renderWaiverHitRate();
+        renderTradeVolume();
+        renderKingmaker();
+    }
+
+    function renderDraftHits() {
+        const container = document.getElementById('draft-hits');
+        // Per-manager draft hit rate, with player-name detail
+        const managerStats = {}; // owner_id -> { hits, busts, total, hitPlayers, bustPlayers }
+
+        for (const [season, sd] of Object.entries(seasonData)) {
+            const rosterOwnerMap = {};
+            sd.rosters.forEach(r => { rosterOwnerMap[r.roster_id] = r.owner_id; });
+
+            sd.draftPicks.forEach(pick => {
+                const rosterId = parseInt(pick.roster_id);
+                const ownerId = rosterOwnerMap[rosterId];
+                if (!ownerId) return;
+
+                const playerId = pick.player_id;
+                if (!playerId) return;
+
+                if (!playerScoredInLeague(season, playerId)) return;
+
+                const effectiveTopN = getEffectiveTopN(playerId, 10);
+                const { topWeeks, rosteredWeeks, totalPoints } = getHitWeeks(season, rosterId, playerId, 1, effectiveTopN);
+                if (rosteredWeeks < 2) return;
+
+                // K/DEF need top-2 consistently — skip from bust/hit unless they meet that bar
+                if (isExcludedPosition(playerId) && topWeeks < 4) return;
+
+                const wasDropped = getDropWeek(season, rosterId, playerId) !== null;
+                const isHit = topWeeks >= 4 && !wasDropped;
+
+                if (!managerStats[ownerId]) managerStats[ownerId] = { hits: 0, busts: 0, total: 0, hitPlayers: [], bustPlayers: [] };
+                managerStats[ownerId].total++;
+                if (isHit) {
+                    managerStats[ownerId].hits++;
+                    if (managerStats[ownerId].hitPlayers.length < 3) {
+                        managerStats[ownerId].hitPlayers.push(getPlayerShort(playerId));
+                    }
+                }
+                if (wasDropped) {
+                    managerStats[ownerId].busts++;
+                    if (managerStats[ownerId].bustPlayers.length < 2) {
+                        managerStats[ownerId].bustPlayers.push(`${getPlayerShort(playerId)} (Rd${pick.round})`);
+                    }
+                }
+            });
+        }
+
+        const sorted = Object.entries(managerStats)
+            .map(([ownerId, stats]) => ({
+                name: getManagerName(ownerId),
+                hitRate: stats.total > 0 ? (stats.hits / stats.total) : 0,
+                hits: stats.hits,
+                busts: stats.busts,
+                total: stats.total,
+                hitPlayers: stats.hitPlayers,
+                bustPlayers: stats.bustPlayers
+            }))
+            .filter(m => m.total >= 3)
+            .sort((a, b) => b.hitRate - a.hitRate);
+
+        if (sorted.length === 0) {
+            container.innerHTML = '<p class="text-gray-400 text-sm">Not enough draft data to analyze (players_points may not be available).</p>';
+            return;
+        }
+
+        container.innerHTML = sorted.map((m, idx) => {
+            const pct = (m.hitRate * 100).toFixed(0);
+            const barColor = m.hitRate >= 0.5 ? 'from-sleeper-success to-emerald-400' : m.hitRate >= 0.3 ? 'from-sleeper-warning to-yellow-400' : 'from-sleeper-danger to-red-400';
+            const medal = idx === 0 ? '🥇 ' : idx === 1 ? '🥈 ' : idx === 2 ? '🥉 ' : '';
+            const hitList = m.hitPlayers.length > 0 ? `<span class="text-sleeper-success">Hits:</span> ${m.hitPlayers.join(', ')}` : '';
+            const bustList = m.bustPlayers.length > 0 ? `<span class="text-sleeper-danger">Busts:</span> ${m.bustPlayers.join(', ')}` : '';
+            const detail = [hitList, bustList].filter(Boolean).join(' · ');
+            return `
+                <div class="bg-sleeper-dark rounded-lg p-3">
+                    <div class="flex items-start justify-between gap-2 mb-2">
+                        <span class="text-sm font-medium">${medal}${m.name}</span>
+                        <span class="text-xs text-gray-400 whitespace-nowrap">${m.hits} hit / ${m.busts} bust</span>
+                    </div>
+                    <div class="bg-sleeper-card rounded-full h-5 overflow-hidden">
+                        <div class="h-full bg-gradient-to-r ${barColor} rounded-full flex items-center justify-end pr-2 text-xs font-bold" style="width:${Math.max(pct, 8)}%">${pct}%</div>
+                    </div>
+                    ${detail ? `<div class="text-xs text-gray-500 mt-2">${detail}</div>` : ''}
+                </div>
+            `;
+        }).join('');
+    }
+
+    function renderDraftBustsByRound() {
+        const container = document.getElementById('draft-round-busts');
+        const roundStats = {}; // round -> { busts, total, bustNames }
+
+        for (const [season, sd] of Object.entries(seasonData)) {
+            sd.draftPicks.forEach(pick => {
+                const rosterId = parseInt(pick.roster_id);
+                const playerId = pick.player_id;
+                if (!playerId) return;
+
+                const round = pick.round;
+                if (!roundStats[round]) roundStats[round] = { busts: 0, total: 0, bustNames: [] };
+
+                if (!playerScoredInLeague(season, playerId)) return;
+
+                roundStats[round].total++;
+                const wasDropped = getDropWeek(season, rosterId, playerId) !== null;
+                if (wasDropped) {
+                    roundStats[round].busts++;
+                    if (roundStats[round].bustNames.length < 3) {
+                        roundStats[round].bustNames.push(getPlayerShort(playerId));
+                    }
+                }
+            });
+        }
+
+        const rounds = Object.keys(roundStats).map(Number).sort((a, b) => a - b);
+        if (rounds.length === 0) {
+            container.innerHTML = '<p class="text-gray-400 text-sm">Not enough data.</p>';
+            return;
+        }
+
+        container.innerHTML = rounds.map(round => {
+            const s = roundStats[round];
+            if (s.total === 0) return '';
+            const bustPct = ((s.busts / s.total) * 100).toFixed(0);
+            const barWidth = Math.max(parseInt(bustPct), 5);
+            const names = s.bustNames.length > 0 ? s.bustNames.join(', ') : '';
+            return `
+                <div class="mb-1">
+                    <div class="flex items-center gap-3">
+                        <div class="w-16 text-sm text-gray-300">Rd ${round}</div>
+                        <div class="flex-1 bg-sleeper-dark rounded-full h-4 overflow-hidden">
+                            <div class="h-full bg-gradient-to-r from-sleeper-danger to-red-400 rounded-full flex items-center justify-end pr-2 text-[10px] font-bold" style="width:${barWidth}%">${bustPct}%</div>
+                        </div>
+                        <div class="text-xs text-gray-500 w-14 text-right">${s.busts}/${s.total}</div>
+                    </div>
+                    ${names ? `<div class="text-xs text-gray-500 ml-16 mt-0.5 pl-3">${names}</div>` : ''}
+                </div>
+            `;
+        }).filter(Boolean).join('');
+    }
+
+    function renderWaiverGems() {
+        const container = document.getElementById('waiver-gems');
+        // Player-focused: show each gem player (4+ top-10 positional weeks, kept on roster)
+        const gems = []; // { player, position, season, manager, topWeeks, totalPoints, rosteredWeeks }
+
+        for (const [season, sd] of Object.entries(seasonData)) {
+            const rosterOwnerMap = {};
+            sd.rosters.forEach(r => { rosterOwnerMap[r.roster_id] = r.owner_id; });
+
+            const waiverTxs = sd.transactions.filter(t =>
+                (t.type === 'waiver' || t.type === 'free_agent') && t.status === 'complete' && t.adds
+            );
+
+            waiverTxs.forEach(tx => {
+                const week = tx._week;
+                const lastWeek = getLastAnalysisWeek(season);
+                if (week > lastWeek) return;
+
+                Object.entries(tx.adds).forEach(([playerId, rosterId]) => {
+                    const ownerId = rosterOwnerMap[rosterId];
+                    if (!ownerId) return;
+                    if (!playerScoredInLeague(season, playerId)) return;
+
+                    const effectiveTopN = getEffectiveTopN(playerId, 10);
+                    const { topWeeks, rosteredWeeks, totalPoints } = getHitWeeks(season, rosterId, playerId, week, effectiveTopN);
+                    if (rosteredWeeks < 2) return;
+
+                    // K/DEF excluded unless top-2 consistently
+                    if (isExcludedPosition(playerId) && topWeeks < 4) return;
+
+                    const wasDropped = getDropWeek(season, rosterId, playerId) !== null;
+                    if (topWeeks >= 4 && !wasDropped) {
+                        gems.push({
+                            player: getPlayerShort(playerId),
+                            position: getPlayerPosition(playerId) || '??',
+                            season,
+                            manager: getManagerName(ownerId),
+                            topWeeks,
+                            topN: effectiveTopN,
+                            totalPoints,
+                            rosteredWeeks
+                        });
+                    }
+                });
+            });
+        }
+
+        gems.sort((a, b) => b.topWeeks - a.topWeeks || b.totalPoints - a.totalPoints);
+
+        if (gems.length === 0) {
+            container.innerHTML = '<p class="text-gray-400 text-sm">No waiver gems found (4+ top-10 positional weeks required).</p>';
+            return;
+        }
+
+        container.innerHTML = gems.slice(0, 15).map((g, idx) => {
+            const medal = idx === 0 ? '💎 ' : '';
+            return `
+                <div class="bg-sleeper-dark rounded-lg p-3">
+                    <div class="flex items-center justify-between">
+                        <span class="text-sm font-semibold">${medal}${g.player} <span class="text-xs text-sleeper-accent">${g.position}</span></span>
+                        <span class="text-sleeper-success font-bold text-sm">${g.topWeeks} top-${g.topN} weeks</span>
+                    </div>
+                    <div class="text-xs text-gray-400 mt-1">${g.totalPoints.toFixed(1)} pts over ${g.rosteredWeeks} wks · Picked up by ${g.manager} · ${g.season}</div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    function renderWaiverBusts() {
+        const container = document.getElementById('waiver-busts');
+        // Player-focused: show each busted FAAB pickup (spent money, then dropped)
+        const busts = []; // { player, position, season, manager, faabSpent }
+
+        for (const [season, sd] of Object.entries(seasonData)) {
+            const rosterOwnerMap = {};
+            sd.rosters.forEach(r => { rosterOwnerMap[r.roster_id] = r.owner_id; });
+
+            const waiverTxs = sd.transactions.filter(t =>
+                t.type === 'waiver' && t.status === 'complete' && t.adds && t.settings?.waiver_bid != null
+            );
+
+            waiverTxs.forEach(tx => {
+                const week = tx._week;
+                const lastWeek = getLastAnalysisWeek(season);
+                if (week > lastWeek) return;
+
+                const faabSpent = tx.settings.waiver_bid || 0;
+                if (faabSpent === 0) return;
+
+                Object.entries(tx.adds).forEach(([playerId, rosterId]) => {
+                    const ownerId = rosterOwnerMap[rosterId];
+                    if (!ownerId) return;
+                    if (!playerScoredInLeague(season, playerId)) return;
+
+                    // Skip K/DEF from bust tracking
+                    if (isExcludedPosition(playerId)) return;
+
+                    const wasDropped = getDropWeek(season, rosterId, playerId) !== null;
+                    if (wasDropped) {
+                        busts.push({
+                            player: getPlayerShort(playerId),
+                            position: getPlayerPosition(playerId) || '??',
+                            season,
+                            manager: getManagerName(ownerId),
+                            faabSpent
+                        });
+                    }
+                });
+            });
+        }
+
+        busts.sort((a, b) => b.faabSpent - a.faabSpent);
+
+        if (busts.length === 0) {
+            container.innerHTML = '<p class="text-gray-400 text-sm">No FAAB waiver busts found (league may use rolling waivers).</p>';
+            return;
+        }
+
+        container.innerHTML = busts.slice(0, 15).map((b, idx) => {
+            const isWorst = idx === 0;
+            return `
+                <div class="bg-sleeper-dark rounded-lg p-3 ${isWorst ? 'border border-sleeper-danger' : ''}">
+                    <div class="flex items-center justify-between">
+                        <span class="text-sm font-semibold ${isWorst ? 'text-sleeper-danger' : ''}">${isWorst ? '🔥 ' : ''}${b.player} <span class="text-xs text-sleeper-accent">${b.position}</span></span>
+                        <span class="text-sm font-bold ${isWorst ? 'text-sleeper-danger' : 'text-gray-300'}">$${b.faabSpent} wasted</span>
+                    </div>
+                    <div class="text-xs text-gray-400 mt-1">Picked up & dropped by ${b.manager} · ${b.season}</div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    function renderWaiverHitRate() {
+        const container = document.getElementById('waiver-hit-rate');
+        // Hit = pickup had 4+ top-10 positional weeks. Manager-focused with player names.
+        const managerStats = {}; // owner_id -> { hits, total, bestPlayers }
+
+        for (const [season, sd] of Object.entries(seasonData)) {
+            const rosterOwnerMap = {};
+            sd.rosters.forEach(r => { rosterOwnerMap[r.roster_id] = r.owner_id; });
+
+            const waiverTxs = sd.transactions.filter(t =>
+                (t.type === 'waiver' || t.type === 'free_agent') && t.status === 'complete' && t.adds
+            );
+
+            waiverTxs.forEach(tx => {
+                const week = tx._week;
+                const lastWeek = getLastAnalysisWeek(season);
+                if (week > lastWeek) return;
+
+                Object.entries(tx.adds).forEach(([playerId, rosterId]) => {
+                    const ownerId = rosterOwnerMap[rosterId];
+                    if (!ownerId) return;
+                    if (!playerScoredInLeague(season, playerId)) return;
+
+                    // Skip K/DEF unless top-2 at position
+                    const effectiveTopN = getEffectiveTopN(playerId, 10);
+                    const { topWeeks, rosteredWeeks } = getHitWeeks(season, rosterId, playerId, week, effectiveTopN);
+                    if (rosteredWeeks < 1) return;
+                    if (isExcludedPosition(playerId) && topWeeks < 4) return;
+
+                    if (!managerStats[ownerId]) managerStats[ownerId] = { hits: 0, total: 0, bestPlayers: [] };
+                    managerStats[ownerId].total++;
+                    if (topWeeks >= 4) {
+                        managerStats[ownerId].hits++;
+                        if (managerStats[ownerId].bestPlayers.length < 3) {
+                            managerStats[ownerId].bestPlayers.push(getPlayerShort(playerId));
+                        }
+                    }
+                });
+            });
+        }
+
+        const sorted = Object.entries(managerStats)
+            .map(([ownerId, stats]) => ({
+                name: getManagerName(ownerId),
+                hitRate: stats.total > 0 ? stats.hits / stats.total : 0,
+                hits: stats.hits,
+                total: stats.total,
+                bestPlayers: stats.bestPlayers
+            }))
+            .filter(m => m.total >= 5)
+            .sort((a, b) => b.hitRate - a.hitRate);
+
+        if (sorted.length === 0) {
+            container.innerHTML = '<p class="text-gray-400 text-sm">Not enough waiver data.</p>';
+            return;
+        }
+
+        const max = sorted[0].hitRate;
+        container.innerHTML = sorted.map(m => {
+            const pct = (m.hitRate * 100).toFixed(0);
+            const barWidth = max > 0 ? Math.max((m.hitRate / max) * 100, 8) : 8;
+            const playerList = m.bestPlayers.length > 0 ? m.bestPlayers.join(', ') : '';
+            return `
+                <div class="mb-2">
+                    <div class="flex items-center gap-3">
+                        <div class="w-32 md:w-40 text-sm truncate">${m.name}</div>
+                        <div class="flex-1 bg-sleeper-dark rounded-full h-4 overflow-hidden">
+                            <div class="h-full bg-gradient-to-r from-sleeper-success to-emerald-400 rounded-full flex items-center justify-end pr-2 text-[10px] font-bold" style="width:${barWidth}%">${pct}%</div>
+                        </div>
+                        <div class="text-xs text-gray-400 w-16 text-right">${m.hits}/${m.total}</div>
+                    </div>
+                    ${playerList ? `<div class="text-xs text-gray-500 ml-32 md:ml-40 mt-0.5 pl-3">${playerList}</div>` : ''}
+                </div>
+            `;
+        }).join('');
+    }
+
+    function renderTradeVolume() {
+        const container = document.getElementById('trade-volume');
+        const counts = {}; // owner_id -> count
+
+        for (const sd of Object.values(seasonData)) {
+            const rosterOwnerMap = {};
+            sd.rosters.forEach(r => { rosterOwnerMap[r.roster_id] = r.owner_id; });
+
+            const trades = sd.transactions.filter(t => t.type === 'trade' && t.status === 'complete');
+            trades.forEach(t => {
+                (t.roster_ids || []).forEach(rid => {
+                    const ownerId = rosterOwnerMap[rid];
+                    if (ownerId) counts[ownerId] = (counts[ownerId] || 0) + 1;
+                });
+            });
+        }
+
+        const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+        const max = sorted[0]?.[1] || 1;
+
+        if (sorted.length === 0) {
+            container.innerHTML = '<p class="text-gray-400 text-sm">No trades found.</p>';
+            return;
+        }
+
+        container.innerHTML = sorted.slice(0, 10).map(([ownerId, count]) => {
+            const pct = (count / max * 100).toFixed(0);
+            const name = getManagerName(ownerId);
+            return `
+                <div class="flex items-center gap-3">
+                    <div class="w-32 md:w-40 text-sm truncate">${name}</div>
+                    <div class="flex-1 bg-sleeper-dark rounded-full h-5 overflow-hidden">
+                        <div class="h-full bg-gradient-to-r from-sleeper-accent to-sleeper-highlight rounded-full flex items-center justify-end pr-2 text-xs font-bold" style="width:${pct}%">${count}</div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    function renderKingmaker() {
+        const container = document.getElementById('kingmaker');
+        // Across all seasons, who traded with the eventual champion most?
+        const tradedWithChamp = {}; // owner_id -> count
+
+        for (const sd of Object.values(seasonData)) {
+            if (!sd.winner) continue;
+            const rosterOwnerMap = {};
+            sd.rosters.forEach(r => { rosterOwnerMap[r.roster_id] = r.owner_id; });
+
+            const champOwnerId = rosterOwnerMap[sd.winner];
+            if (!champOwnerId) continue;
+
+            const trades = sd.transactions.filter(t => t.type === 'trade' && t.status === 'complete');
+            trades.forEach(t => {
+                const rids = t.roster_ids || [];
+                if (rids.includes(sd.winner)) {
+                    rids.forEach(rid => {
+                        if (rid !== sd.winner) {
+                            const ownerId = rosterOwnerMap[rid];
+                            if (ownerId && ownerId !== champOwnerId) {
+                                tradedWithChamp[ownerId] = (tradedWithChamp[ownerId] || 0) + 1;
+                            }
+                        }
+                    });
+                }
+            });
+        }
+
+        const sorted = Object.entries(tradedWithChamp).sort((a, b) => b[1] - a[1]);
+        if (sorted.length === 0) {
+            container.innerHTML = '<p class="text-gray-400 text-sm">Champions made no trades, or not enough data.</p>';
+            return;
+        }
+
+        container.innerHTML = sorted.slice(0, 5).map(([ownerId, count], idx) => {
+            const name = getManagerName(ownerId);
+            const crown = idx === 0 ? '👑 ' : '';
+            return `
+                <div class="flex items-center justify-between bg-sleeper-dark rounded-lg p-3">
+                    <span class="text-sm font-semibold">${crown}${name}</span>
+                    <span class="text-sleeper-warning font-bold">${count} trade${count > 1 ? 's' : ''} with champs</span>
+                </div>
+            `;
+        }).join('');
+    }
+
+    function renderSeasonBreakdown() {
+        const container = document.getElementById('season-breakdown');
+        const seasons = Object.keys(seasonData).sort();
+
+        container.innerHTML = seasons.map(season => {
+            const sd = seasonData[season];
+            const trades = sd.transactions.filter(t => t.type === 'trade' && t.status === 'complete').length;
+            const waivers = sd.transactions.filter(t => (t.type === 'waiver' || t.type === 'free_agent') && t.status === 'complete').length;
+            const picks = sd.draftPicks.length;
+            const winnerName = sd.winner ? getTeamName(sd.winner, season) : 'TBD';
+
+            return `
+                <div class="bg-sleeper-dark rounded-lg p-4">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="font-bold text-sleeper-accent">${season}</span>
+                        <span class="text-xs text-sleeper-warning">🏆 ${winnerName}</span>
+                    </div>
+                    <div class="grid grid-cols-3 gap-2 text-center text-xs">
+                        <div><span class="block text-lg font-bold text-gray-200">${picks}</span>Draft Picks</div>
+                        <div><span class="block text-lg font-bold text-gray-200">${waivers}</span>Waivers/FA</div>
+                        <div><span class="block text-lg font-bold text-gray-200">${trades}</span>Trades</div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    // ============ NAVIGATION ============
+    function goBack() {
+        hide('results-section');
+        show('league-section');
+    }
+
+    document.getElementById('username-input').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') lookupUser();
+    });
+    </script>
+</body>
+</html>
