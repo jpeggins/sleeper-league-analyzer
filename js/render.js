@@ -425,10 +425,10 @@ function renderKingmaker() {
     // Across all seasons, who traded with the eventual champion most?
     const tradedWithChamp = {}; // owner_id -> count
 
-    for (const sd of Object.values(seasonData)) {
-        // Only count completed seasons (not in-progress)
-        if (sd.league.status !== 'complete') continue;
-        if (!sd.winner) continue;
+    for (const [season, sd] of Object.entries(seasonData)) {
+        console.log(`Kingmaker ${season}: winner=${sd.winner}, confirmed=${sd.winnerConfirmed}, status=${sd.league.status}`);
+        // Only count seasons with a bracket-confirmed champion
+        if (!sd.winner || !sd.winnerConfirmed) continue;
 
         const winnerId = parseInt(sd.winner);
         const rosterOwnerMap = {};
@@ -438,9 +438,11 @@ function renderKingmaker() {
         if (!champOwnerId) continue;
 
         const trades = sd.transactions.filter(t => t.type === 'trade' && t.status === 'complete');
+        let champTradeCount = 0;
         trades.forEach(t => {
             const rids = (t.roster_ids || []).map(Number);
             if (rids.includes(winnerId)) {
+                champTradeCount++;
                 rids.forEach(rid => {
                     if (rid !== winnerId) {
                         const ownerId = rosterOwnerMap[rid];
@@ -451,6 +453,7 @@ function renderKingmaker() {
                 });
             }
         });
+        console.log(`  ${season}: ${trades.length} total trades, ${champTradeCount} involve winner (roster ${winnerId}, owner ${champOwnerId})`);
     }
 
     const sorted = Object.entries(tradedWithChamp).sort((a, b) => b[1] - a[1]);

@@ -192,7 +192,7 @@ async function loadSeasonData(league) {
     });
 
     // Determine winner
-    const winner = determineWinner(winnersBracket, rosters || []);
+    const winnerResult = determineWinner(winnersBracket, rosters || []);
 
     seasonData[season] = {
         league,
@@ -202,34 +202,35 @@ async function loadSeasonData(league) {
         draftPicks: allDraftPicks,
         matchups,
         transactions: allTransactions,
-        winner
+        winner: winnerResult.rosterId,
+        winnerConfirmed: winnerResult.confirmed
     };
 }
 
 function determineWinner(bracket, rosters) {
     if (!bracket || bracket.length === 0) {
-        // No bracket - use best regular season record
+        // No bracket - use best regular season record (unconfirmed)
         const sorted = [...rosters].sort((a, b) => {
             const diff = (b.settings?.wins || 0) - (a.settings?.wins || 0);
             return diff !== 0 ? diff : (b.settings?.fpts || 0) - (a.settings?.fpts || 0);
         });
-        return sorted[0]?.roster_id || null;
+        return { rosterId: sorted[0]?.roster_id || null, confirmed: false };
     }
     // Try p === 1 (placement field, if league uses it)
     const champByPlacement = bracket.find(m => m.p === 1);
-    if (champByPlacement?.w) return champByPlacement.w;
+    if (champByPlacement?.w) return { rosterId: champByPlacement.w, confirmed: true };
 
     // Find the championship match: highest round, matchup m === 1
     const maxRound = Math.max(...bracket.map(m => m.r || 0));
     if (maxRound > 0) {
         const finalMatch = bracket.find(m => m.r === maxRound && m.m === 1);
-        if (finalMatch?.w) return finalMatch.w;
+        if (finalMatch?.w) return { rosterId: finalMatch.w, confirmed: true };
     }
 
-    // Fallback: best regular season record
+    // Fallback: best regular season record (unconfirmed)
     const sorted = [...rosters].sort((a, b) => {
         const diff = (b.settings?.wins || 0) - (a.settings?.wins || 0);
         return diff !== 0 ? diff : (b.settings?.fpts || 0) - (a.settings?.fpts || 0);
     });
-    return sorted[0]?.roster_id || null;
+    return { rosterId: sorted[0]?.roster_id || null, confirmed: false };
 }

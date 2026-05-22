@@ -245,12 +245,7 @@
             const sd = seasonData[season];
             const user = sd.users?.find(u => u.user_id === ownerId);
             if (user) {
-                const teamName = user.metadata?.team_name;
-                const username = user.username || user.display_name || `Manager ${ownerId}`;
-                if (teamName && teamName !== username) {
-                    return `${teamName} (@${username})`;
-                }
-                return `@${username}`;
+                return `@${user.username || user.display_name || `Manager ${ownerId}`}`;
             }
         }
         return `Manager ${ownerId}`;
