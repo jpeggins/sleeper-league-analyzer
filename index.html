@@ -76,9 +76,9 @@
         <section id="league-section" class="mb-8 hidden fade-in">
             <div class="bg-sleeper-card rounded-xl p-6 shadow-lg">
                 <h2 class="text-xl font-bold mb-2">Select a League</h2>
-                <p class="text-gray-400 text-xs mb-4">Pick any season — the app will automatically find all connected seasons for multi-year analysis.</p>
-                <div class="mb-4">
-                    <select id="season-select" onchange="fetchLeagues()"
+                <p id="league-section-desc" class="text-gray-400 text-xs mb-4">All connected seasons will be analyzed automatically.</p>
+                <div id="season-select-wrapper" class="mb-4 hidden">
+                    <select id="season-select" onchange="fetchLeaguesBySeason()"
                         class="bg-sleeper-dark border border-gray-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-sleeper-accent">
                     </select>
                 </div>
@@ -283,17 +283,86 @@
             if (!user || !user.user_id) throw new Error('User not found');
             currentUser = user;
 
-            const seasonSelect = document.getElementById('season-select');
-            seasonSelect.innerHTML = '';
+            // Fetch leagues across all years to find unique league chains
+            setLoading('Finding your leagues...');
             const currentYear = new Date().getFullYear();
+            const allLeagues = [];
+            const fetches = [];
             for (let y = currentYear; y >= 2018; y--) {
-                const opt = document.createElement('option');
-                opt.value = y;
-                opt.textContent = y;
-                seasonSelect.appendChild(opt);
+                fetches.push(
+                    fetch(`${API_BASE}/user/${user.user_id}/leagues/nfl/${y}`)
+                        .then(r => r.ok ? r.json() : [])
+                        .catch(() => [])
+                );
+            }
+            const results = await Promise.all(fetches);
+            results.forEach(leagues => {
+                if (leagues) allLeagues.push(...leagues);
+            });
+
+            // Deduplicate: group by chain — keep the most recent version of each league
+            // Two leagues are in the same chain if one's previous_league_id points to the other
+            const seen = new Set();
+            const uniqueLeagues = [];
+            // Sort newest first so we keep the most recent name
+            allLeagues.sort((a, b) => parseInt(b.season) - parseInt(a.season));
+            for (const league of allLeagues) {
+                if (seen.has(league.league_id)) continue;
+                // Walk this league's chain to mark all as seen
+                let lid = league.league_id;
+                const chainIds = new Set();
+                // Walk backward
+                let cur = league;
+                while (cur) {
+                    chainIds.add(cur.league_id);
+                    if (cur.previous_league_id && !chainIds.has(cur.previous_league_id)) {
+                        cur = allLeagues.find(l => l.league_id === cur.previous_league_id);
+                    } else {
+                        cur = null;
+                    }
+                }
+                // Walk forward (find leagues whose previous_league_id is in our chain)
+                let changed = true;
+                while (changed) {
+                    changed = false;
+                    for (const l of allLeagues) {
+                        if (!chainIds.has(l.league_id) && chainIds.has(l.previous_league_id)) {
+                            chainIds.add(l.league_id);
+                            changed = true;
+                        }
+                    }
+                }
+                // If none of this chain was already seen, add it
+                if (![...chainIds].some(id => seen.has(id))) {
+                    uniqueLeagues.push(league);
+                }
+                chainIds.forEach(id => seen.add(id));
             }
 
-            await fetchLeagues();
+            if (uniqueLeagues.length <= 5) {
+                // Show leagues directly — no year selector needed
+                hide('season-select-wrapper');
+                document.getElementById('league-section-desc').textContent = 'All connected seasons will be analyzed automatically.';
+                currentLeagues = uniqueLeagues;
+                renderLeagues();
+            } else {
+                // Too many leagues — show year selector
+                show('season-select-wrapper');
+                document.getElementById('league-section-desc').textContent = 'Pick a season to browse leagues, then select one for multi-year analysis.';
+                const seasonSelect = document.getElementById('season-select');
+                seasonSelect.innerHTML = '';
+                for (let y = currentYear; y >= 2018; y--) {
+                    const opt = document.createElement('option');
+                    opt.value = y;
+                    opt.textContent = y;
+                    seasonSelect.appendChild(opt);
+                }
+                await fetchLeaguesBySeason();
+                return; // fetchLeaguesBySeason handles showing the section
+            }
+
+            hideLoading();
+            show('league-section');
         } catch (e) {
             hideLoading();
             const errEl = document.getElementById('user-error');
@@ -303,7 +372,7 @@
     }
 
     // ============ LEAGUES ============
-    async function fetchLeagues() {
+    async function fetchLeaguesBySeason() {
         const season = document.getElementById('season-select').value;
         setLoading(`Fetching ${season} leagues...`);
 
@@ -323,7 +392,7 @@
     function renderLeagues() {
         const container = document.getElementById('leagues-list');
         if (currentLeagues.length === 0) {
-            container.innerHTML = '<p class="text-gray-400">No leagues found for this season.</p>';
+            container.innerHTML = '<p class="text-gray-400">No leagues found.</p>';
             return;
         }
         container.innerHTML = currentLeagues.map(league => `
