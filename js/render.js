@@ -27,6 +27,7 @@ function renderResults() {
     renderWaiverBusts();
     renderWaiverHitRate();
     renderTradeVolume();
+    renderWorstTrades();
     renderKingmaker();
 }
 
@@ -414,6 +415,125 @@ function renderTradeVolume() {
                 </div>
                 <div class="bg-sleeper-card rounded-full h-5 overflow-hidden">
                     <div class="h-full bg-gradient-to-r from-sleeper-accent to-sleeper-highlight rounded-full flex items-center justify-end pr-2 text-xs font-bold" style="width:${pct}%">${count}</div>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function renderWorstTrades() {
+    const container = document.getElementById('worst-trades');
+    const tradeResults = []; // { season, week, loserName, winnerName, loserGave, loserGot, winnerGave, winnerGot, diff }
+
+    for (const [season, sd] of Object.entries(seasonData)) {
+        const rosterOwnerMap = {};
+        sd.rosters.forEach(r => { rosterOwnerMap[r.roster_id] = r.owner_id; });
+
+        const lastWeek = getLastAnalysisWeek(season);
+        const trades = sd.transactions.filter(t => t.type === 'trade' && t.status === 'complete' && t._week <= lastWeek);
+
+        trades.forEach(t => {
+            const adds = t.adds || {};
+            const drops = t.drops || {};
+            const rids = t.roster_ids || [];
+            if (rids.length !== 2) return; // only evaluate 2-team trades
+
+            const [rid1, rid2] = rids;
+
+            // Players each side received (adds) and gave away (drops)
+            const r1Got = [], r1Gave = [];
+            const r2Got = [], r2Gave = [];
+
+            for (const [pid, toRid] of Object.entries(adds)) {
+                if (parseInt(toRid) === parseInt(rid1)) r1Got.push(pid);
+                if (parseInt(toRid) === parseInt(rid2)) r2Got.push(pid);
+            }
+            for (const [pid, fromRid] of Object.entries(drops)) {
+                if (parseInt(fromRid) === parseInt(rid1)) r1Gave.push(pid);
+                if (parseInt(fromRid) === parseInt(rid2)) r2Gave.push(pid);
+            }
+
+            // Skip trades with no players on either side (draft-pick-only trades)
+            if ((r1Got.length === 0 && r1Gave.length === 0) || (r2Got.length === 0 && r2Gave.length === 0)) return;
+
+            // Calculate remaining-season points for each set of players
+            function remainingPts(players, rosterId) {
+                let total = 0;
+                for (const pid of players) {
+                    for (let w = t._week + 1; w <= lastWeek; w++) {
+                        const weekData = sd.matchups[w];
+                        if (!weekData) continue;
+                        // Check all rosters for this player's points (they might be on a different team now)
+                        for (const rid of Object.keys(weekData)) {
+                            const pp = weekData[rid].players_points || {};
+                            if (pp[pid] != null && (weekData[rid].players || []).includes(pid)) {
+                                total += pp[pid];
+                                break;
+                            }
+                        }
+                    }
+                }
+                return total;
+            }
+
+            const r1GotPts = remainingPts(r1Got, rid1);
+            const r1GavePts = remainingPts(r1Gave, rid2);
+            const r2GotPts = remainingPts(r2Got, rid2);
+            const r2GavePts = remainingPts(r2Gave, rid1);
+
+            // r1's net = what they got - what they gave away
+            const r1Net = r1GotPts - r1GavePts;
+            const r2Net = r2GotPts - r2GavePts;
+
+            // The loser is the side with the worse net
+            const loserId = r1Net < r2Net ? rid1 : rid2;
+            const winnerId = r1Net < r2Net ? rid2 : rid1;
+            const loserNet = Math.min(r1Net, r2Net);
+            const winnerNet = Math.max(r1Net, r2Net);
+
+            if (Math.abs(loserNet) < 20) return; // skip roughly even trades
+
+            const loserGave = loserId === rid1 ? r1Gave : r2Gave;
+            const loserGot = loserId === rid1 ? r1Got : r2Got;
+            const loserOwnerId = rosterOwnerMap[loserId];
+            const winnerOwnerId = rosterOwnerMap[winnerId];
+
+            tradeResults.push({
+                season,
+                week: t._week,
+                loserName: loserOwnerId ? getManagerName(loserOwnerId) : `Team ${loserId}`,
+                winnerName: winnerOwnerId ? getManagerName(winnerOwnerId) : `Team ${winnerId}`,
+                loserGaveNames: loserGave.map(p => getPlayerShort(p)),
+                loserGotNames: loserGot.map(p => getPlayerShort(p)),
+                diff: Math.abs(loserNet).toFixed(1),
+                loserGavePts: (loserId === rid1 ? r1GavePts : r2GavePts).toFixed(1),
+                loserGotPts: (loserId === rid1 ? r1GotPts : r2GotPts).toFixed(1)
+            });
+        });
+    }
+
+    tradeResults.sort((a, b) => parseFloat(b.diff) - parseFloat(a.diff));
+
+    if (tradeResults.length === 0) {
+        container.innerHTML = '<p class="text-gray-400 text-sm">No player-for-player trades found, or all trades were roughly even.</p>';
+        return;
+    }
+
+    container.innerHTML = tradeResults.slice(0, 10).map((t, idx) => {
+        const isWorst = idx === 0;
+        return `
+            <div class="bg-sleeper-dark rounded-lg p-3 ${isWorst ? 'border border-sleeper-danger' : ''}">
+                <div class="flex items-start justify-between gap-2 mb-2">
+                    <span class="text-sm font-medium ${isWorst ? 'text-sleeper-danger' : ''}">${isWorst ? '💀 ' : ''}${t.loserName}</span>
+                    <span class="text-xs text-gray-400 whitespace-nowrap">${t.season} Wk ${t.week}</span>
+                </div>
+                <div class="text-xs text-gray-400 space-y-1">
+                    <div><span class="text-sleeper-danger">Gave away:</span> ${t.loserGaveNames.join(', ')} <span class="text-gray-500">(${t.loserGavePts} pts ROS)</span></div>
+                    <div><span class="text-sleeper-success">Received:</span> ${t.loserGotNames.join(', ')} <span class="text-gray-500">(${t.loserGotPts} pts ROS)</span></div>
+                </div>
+                <div class="flex items-center justify-between mt-2">
+                    <span class="text-xs text-gray-500">Traded with ${t.winnerName}</span>
+                    <span class="text-sm font-bold text-sleeper-danger">-${t.diff} pts</span>
                 </div>
             </div>
         `;
