@@ -1,0 +1,14 @@
+@import "tailwindcss";
+
+@source "../index.html";
+@source "../js/**/*.js";
+
+@theme {
+  --color-sleeper-dark: #1a1d2e;
+  --color-sleeper-card: #232538;
+  --color-sleeper-accent: #00b4d8;
+  --color-sleeper-highlight: #7c3aed;
+  --color-sleeper-success: #10b981;
+  --color-sleeper-warning: #f59e0b;
+  --color-sleeper-danger: #ef4444;
+}
