@@ -1,3 +1,30 @@
+// ============ COLLAPSIBLE HELPER ============
+let _collapseCounter = 0;
+function renderCollapsible(container, items, defaultCount = 5) {
+    if (items.length <= defaultCount) {
+        container.innerHTML = items.join('');
+        return;
+    }
+    const id = `collapse-${_collapseCounter++}`;
+    const visible = items.slice(0, defaultCount).join('');
+    const hidden = items.slice(defaultCount).join('');
+    container.innerHTML = `
+        ${visible}
+        <div id="${id}" class="hidden">${hidden}</div>
+        <button onclick="
+            const el = document.getElementById('${id}');
+            const btn = this;
+            if (el.classList.contains('hidden')) {
+                el.classList.remove('hidden');
+                btn.textContent = 'Show less';
+            } else {
+                el.classList.add('hidden');
+                btn.textContent = 'Show all ${items.length}';
+            }
+        " class="w-full text-center text-xs text-sleeper-accent hover:text-white py-2 mt-1 transition-colors">Show all ${items.length}</button>
+    `;
+}
+
 // ============ RENDER RESULTS ============
 function renderResults() {
     const seasons = Object.keys(seasonData).sort();
@@ -95,7 +122,7 @@ function renderDraftHits() {
         return;
     }
 
-    container.innerHTML = sorted.map((m, idx) => {
+    const items = sorted.map((m, idx) => {
         const pct = (m.hitRate * 100).toFixed(0);
         const barColor = m.hitRate >= 0.5 ? 'from-sleeper-success to-emerald-400' : m.hitRate >= 0.3 ? 'from-sleeper-warning to-yellow-400' : 'from-sleeper-danger to-red-400';
         const medal = idx === 0 ? '🥇 ' : idx === 1 ? '🥈 ' : idx === 2 ? '🥉 ' : '';
@@ -114,7 +141,8 @@ function renderDraftHits() {
                 ${detail ? `<div class="text-xs text-gray-500 mt-2">${detail}</div>` : ''}
             </div>
         `;
-    }).join('');
+    });
+    renderCollapsible(container, items);
 }
 
 function renderDraftBustsByRound() {
@@ -224,7 +252,7 @@ function renderWaiverGems() {
         return;
     }
 
-    container.innerHTML = gems.slice(0, 15).map((g, idx) => {
+    const items = gems.slice(0, 20).map((g, idx) => {
         const medal = idx === 0 ? '💎 ' : '';
         return `
             <div class="bg-sleeper-dark rounded-lg p-3">
@@ -235,7 +263,8 @@ function renderWaiverGems() {
                 <div class="text-xs text-gray-400 mt-1">${g.totalPoints.toFixed(1)} pts over ${g.rosteredWeeks} wks · Picked up by ${g.manager} · ${g.season}</div>
             </div>
         `;
-    }).join('');
+    });
+    renderCollapsible(container, items);
 }
 
 function renderWaiverBusts() {
@@ -288,7 +317,7 @@ function renderWaiverBusts() {
         return;
     }
 
-    container.innerHTML = busts.slice(0, 15).map((b, idx) => {
+    const items = busts.slice(0, 20).map((b, idx) => {
         const isWorst = idx === 0;
         return `
             <div class="bg-sleeper-dark rounded-lg p-3 ${isWorst ? 'border border-sleeper-danger' : ''}">
@@ -299,7 +328,8 @@ function renderWaiverBusts() {
                 <div class="text-xs text-gray-400 mt-1">Picked up & dropped by ${b.manager} · ${b.season}</div>
             </div>
         `;
-    }).join('');
+    });
+    renderCollapsible(container, items);
 }
 
 function renderWaiverHitRate() {
@@ -360,7 +390,7 @@ function renderWaiverHitRate() {
     }
 
     const max = sorted[0].hitRate;
-    container.innerHTML = sorted.map(m => {
+    const items = sorted.map(m => {
         const pct = (m.hitRate * 100).toFixed(0);
         const barWidth = max > 0 ? Math.max((m.hitRate / max) * 100, 8) : 8;
         const playerList = m.bestPlayers.length > 0 ? m.bestPlayers.join(', ') : '';
@@ -376,7 +406,8 @@ function renderWaiverHitRate() {
                 ${playerList ? `<div class="text-xs text-gray-500 mt-2">${playerList}</div>` : ''}
             </div>
         `;
-    }).join('');
+    });
+    renderCollapsible(container, items);
 }
 
 function renderTradeVolume() {
@@ -404,7 +435,7 @@ function renderTradeVolume() {
         return;
     }
 
-    container.innerHTML = sorted.slice(0, 10).map(([ownerId, count]) => {
+    const items = sorted.map(([ownerId, count]) => {
         const pct = (count / max * 100).toFixed(0);
         const name = getManagerName(ownerId);
         return `
@@ -418,7 +449,8 @@ function renderTradeVolume() {
                 </div>
             </div>
         `;
-    }).join('');
+    });
+    renderCollapsible(container, items);
 }
 
 function renderWorstTrades() {
@@ -553,7 +585,7 @@ function renderWorstTrades() {
         return;
     }
 
-    container.innerHTML = tradeResults.slice(0, 10).map((t, idx) => {
+    const items = tradeResults.slice(0, 15).map((t, idx) => {
         const isWorst = idx === 0;
         return `
             <div class="bg-sleeper-dark rounded-lg p-3 ${isWorst ? 'border border-sleeper-danger' : ''}">
@@ -571,7 +603,8 @@ function renderWorstTrades() {
                 </div>
             </div>
         `;
-    }).join('');
+    });
+    renderCollapsible(container, items);
 }
 
 function renderKingmaker() {
@@ -612,7 +645,7 @@ function renderKingmaker() {
         return;
     }
 
-    container.innerHTML = sorted.slice(0, 5).map(([ownerId, count], idx) => {
+    const items = sorted.map(([ownerId, count], idx) => {
         const name = getManagerName(ownerId);
         const crown = idx === 0 ? '👑 ' : '';
         return `
@@ -621,7 +654,8 @@ function renderKingmaker() {
                 <span class="text-sleeper-warning font-bold">${count} trade${count > 1 ? 's' : ''} with champs</span>
             </div>
         `;
-    }).join('');
+    });
+    renderCollapsible(container, items);
 }
 
 function renderSeasonBreakdown() {
