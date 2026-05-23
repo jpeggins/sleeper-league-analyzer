@@ -517,10 +517,10 @@ function renderWorstTrades() {
             const r1Value = bestR1Gave - bestR1Got; // positive = gave away worse, got better (good trade)
             const r2Value = bestR2Gave - bestR2Got;
 
-            // The loser gave away a significantly better player than they received
-            const loserId = r1Value > r2Value ? rid1 : rid2; // higher value = gave away better (lower rank)
-            const winnerId = r1Value > r2Value ? rid2 : rid1;
-            const loserValue = Math.max(r1Value, r2Value);
+            // The loser has the more negative value (gave away better player than received)
+            const loserId = r1Value < r2Value ? rid1 : rid2;
+            const winnerId = r1Value < r2Value ? rid2 : rid1;
+            const loserValue = Math.abs(Math.min(r1Value, r2Value));
 
             if (loserValue < 3) return; // skip trades where rank diff is small
 
