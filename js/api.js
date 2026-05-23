@@ -100,29 +100,46 @@ async function selectLeague(leagueId) {
 }
 
 async function discoverLeagueChain(startLeagueId) {
-    const chain = [];
-    let currentId = startLeagueId;
+    // Step 1: Fetch the starting league
+    const startRes = await fetch(`${API_BASE}/league/${startLeagueId}`);
+    if (!startRes.ok) return [];
+    const startLeague = await startRes.json();
+    if (!startLeague || !startLeague.league_id) return [];
 
-    // Walk forward first - check if there's a newer season
-    // The API doesn't have a "next_league_id", so we start from what we have
-    // and go backwards via previous_league_id
-    while (currentId) {
+    // Step 2: Walk backward via previous_league_id
+    const backward = [startLeague];
+    let prevId = startLeague.previous_league_id;
+    while (prevId && backward.length < 10) {
         try {
-            const res = await fetch(`${API_BASE}/league/${currentId}`);
+            const res = await fetch(`${API_BASE}/league/${prevId}`);
             if (!res.ok) break;
             const league = await res.json();
             if (!league || !league.league_id) break;
-            chain.push(league);
-            currentId = league.previous_league_id;
-            // Safety: stop at 10 seasons max
-            if (chain.length >= 10) break;
-        } catch (e) {
-            break;
-        }
+            backward.push(league);
+            prevId = league.previous_league_id;
+        } catch (e) { break; }
     }
 
-    // chain is newest→oldest, reverse to oldest→newest for display
-    return chain.reverse();
+    // Step 3: Walk forward — Sleeper has no next_league_id, so check user's
+    // leagues for the next year and find one whose previous_league_id matches
+    const forward = [];
+    let currentLeague = startLeague;
+    while (forward.length + backward.length < 10) {
+        const nextSeason = String(parseInt(currentLeague.season) + 1);
+        try {
+            const res = await fetch(`${API_BASE}/user/${currentUser.user_id}/leagues/nfl/${nextSeason}`);
+            if (!res.ok) break;
+            const leagues = await res.json();
+            if (!leagues || leagues.length === 0) break;
+            const next = leagues.find(l => l.previous_league_id === currentLeague.league_id);
+            if (!next) break;
+            forward.push(next);
+            currentLeague = next;
+        } catch (e) { break; }
+    }
+
+    // Combine: oldest→newest
+    return [...backward.reverse(), ...forward];
 }
 
 async function loadSeasonData(league) {
