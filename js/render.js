@@ -425,16 +425,15 @@ function renderWorstTrades() {
     const container = document.getElementById('worst-trades');
     const tradeResults = [];
 
-    // Score a player's ROS value: elite weeks at position + avg positional rank
-    // Returns { eliteWeeks, weeksPlayed, avgRank, name, topN }
+    // Score a player's ROS value by average positional rank
+    // Lower avgRank = better player. Returns { avgRank, weeksPlayed, name, pos, rankLabel }
     function scorePlayerROS(season, playerId, fromWeek) {
         const lastWeek = getLastAnalysisWeek(season);
         const sd = seasonData[season];
-        if (!sd) return { eliteWeeks: 0, weeksPlayed: 0, avgRank: 99, name: getPlayerShort(playerId), topN: 10 };
+        const pos = getPlayerPosition(playerId) || '??';
+        const name = getPlayerShort(playerId);
+        if (!sd) return { avgRank: 99, weeksPlayed: 0, name, pos, rankLabel: '??' };
 
-        const topN = getEffectiveTopN(playerId, 10);
-        const pos = getPlayerPosition(playerId);
-        let eliteWeeks = 0;
         let weeksPlayed = 0;
         let rankSum = 0;
 
@@ -442,35 +441,27 @@ function renderWorstTrades() {
             const weekData = sd.matchups[w];
             if (!weekData) continue;
 
-            // Find this player's points in any roster this week
-            let found = false;
             for (const rid of Object.keys(weekData)) {
                 const roster = weekData[rid].players || [];
                 if (!roster.includes(playerId)) continue;
                 const pp = weekData[rid].players_points || {};
-                if (pp[playerId] == null) continue;
-                found = true;
-                weeksPlayed++;
+                if (pp[playerId] == null || pp[playerId] <= 0) break;
 
-                // Get positional rank this week
-                if (pos) {
-                    const rankings = getPositionalRankings(season, w);
-                    if (rankings[pos]) {
-                        const idx = rankings[pos].findIndex(r => r.playerId === playerId);
-                        if (idx >= 0) {
-                            rankSum += (idx + 1);
-                            if (idx < topN) eliteWeeks++;
-                        } else {
-                            rankSum += rankings[pos].length; // unranked = last
-                        }
-                    }
+                weeksPlayed++;
+                const rankings = getPositionalRankings(season, w);
+                if (rankings[pos]) {
+                    const idx = rankings[pos].findIndex(r => r.playerId === playerId);
+                    rankSum += idx >= 0 ? (idx + 1) : rankings[pos].length;
+                } else {
+                    rankSum += 20; // default if position not found
                 }
                 break;
             }
         }
 
         const avgRank = weeksPlayed > 0 ? rankSum / weeksPlayed : 99;
-        return { eliteWeeks, weeksPlayed, avgRank, name: getPlayerShort(playerId), topN };
+        const rankLabel = weeksPlayed >= 2 ? `avg ${pos}${Math.round(avgRank)}` : 'N/A';
+        return { avgRank, weeksPlayed, name, pos, rankLabel };
     }
 
     for (const [season, sd] of Object.entries(seasonData)) {
@@ -499,69 +490,63 @@ function renderWorstTrades() {
                 if (parseInt(fromRid) === parseInt(rid2)) r2Gave.push(pid);
             }
 
-            // Need players on both sides
             if (r1Gave.length === 0 || r2Gave.length === 0) return;
 
-            // Score each player's ROS value
+            // Score each player
             const r1GaveScores = r1Gave.map(pid => scorePlayerROS(season, pid, t._week));
             const r1GotScores = r1Got.map(pid => scorePlayerROS(season, pid, t._week));
             const r2GaveScores = r2Gave.map(pid => scorePlayerROS(season, pid, t._week));
             const r2GotScores = r2Got.map(pid => scorePlayerROS(season, pid, t._week));
 
-            // Best player each side gave away (by elite weeks, then avg rank)
-            const bestR1Gave = Math.max(...r1GaveScores.map(s => s.eliteWeeks));
-            const bestR1Got = Math.max(...r1GotScores.map(s => s.eliteWeeks));
-            const bestR2Gave = Math.max(...r2GaveScores.map(s => s.eliteWeeks));
-            const bestR2Got = Math.max(...r2GotScores.map(s => s.eliteWeeks));
+            // Filter to players who actually played 2+ weeks
+            const r1GaveActive = r1GaveScores.filter(s => s.weeksPlayed >= 2);
+            const r1GotActive = r1GotScores.filter(s => s.weeksPlayed >= 2);
+            const r2GaveActive = r2GaveScores.filter(s => s.weeksPlayed >= 2);
+            const r2GotActive = r2GotScores.filter(s => s.weeksPlayed >= 2);
 
-            // Total elite weeks each side gave away vs received
-            const r1GaveElite = r1GaveScores.reduce((s, p) => s + p.eliteWeeks, 0);
-            const r1GotElite = r1GotScores.reduce((s, p) => s + p.eliteWeeks, 0);
-            const r2GaveElite = r2GaveScores.reduce((s, p) => s + p.eliteWeeks, 0);
-            const r2GotElite = r2GotScores.reduce((s, p) => s + p.eliteWeeks, 0);
+            if (r1GaveActive.length === 0 && r2GaveActive.length === 0) return;
 
-            // Net value: elite weeks received - elite weeks given away
-            // Also factor in best player differential for uneven trades
-            const r1Net = r1GotElite - r1GaveElite;
-            const r2Net = r2GotElite - r2GaveElite;
+            // Best player each side gave away (lowest avg rank = best)
+            const bestR1Gave = r1GaveActive.length > 0 ? Math.min(...r1GaveActive.map(s => s.avgRank)) : 99;
+            const bestR1Got = r1GotActive.length > 0 ? Math.min(...r1GotActive.map(s => s.avgRank)) : 99;
+            const bestR2Gave = r2GaveActive.length > 0 ? Math.min(...r2GaveActive.map(s => s.avgRank)) : 99;
+            const bestR2Got = r2GotActive.length > 0 ? Math.min(...r2GotActive.map(s => s.avgRank)) : 99;
 
-            // Bonus penalty for giving away the single best player in the trade
-            const allElite = [...r1GaveScores, ...r2GaveScores, ...r1GotScores, ...r2GotScores].map(s => s.eliteWeeks);
-            const tradeMax = Math.max(...allElite);
+            // Each side's trade value: best player they gave away vs best they received
+            // Negative = gave away a better player than you got back
+            const r1Value = bestR1Gave - bestR1Got; // positive = gave away worse, got better (good trade)
+            const r2Value = bestR2Gave - bestR2Got;
 
-            if (tradeMax < 2) return; // skip trades where nobody produced
+            // The loser gave away a significantly better player than they received
+            const loserId = r1Value > r2Value ? rid1 : rid2; // higher value = gave away better (lower rank)
+            const winnerId = r1Value > r2Value ? rid2 : rid1;
+            const loserValue = Math.max(r1Value, r2Value);
 
-            const loserId = r1Net < r2Net ? rid1 : rid2;
-            const winnerId = r1Net < r2Net ? rid2 : rid1;
-            const loserNet = Math.min(r1Net, r2Net);
-
-            if (Math.abs(loserNet) < 2) return; // skip roughly even trades
+            if (loserValue < 3) return; // skip trades where rank diff is small
 
             const loserGaveScores = loserId === rid1 ? r1GaveScores : r2GaveScores;
             const loserGotScores = loserId === rid1 ? r1GotScores : r2GotScores;
+            const loserBestGave = loserId === rid1 ? bestR1Gave : bestR2Gave;
+            const loserBestGot = loserId === rid1 ? bestR1Got : bestR2Got;
             const loserOwnerId = rosterOwnerMap[loserId];
             const winnerOwnerId = rosterOwnerMap[winnerId];
-
-            const loserGaveElite = loserGaveScores.reduce((s, p) => s + p.eliteWeeks, 0);
-            const loserGotElite = loserGotScores.reduce((s, p) => s + p.eliteWeeks, 0);
 
             tradeResults.push({
                 season,
                 week: t._week,
                 loserName: loserOwnerId ? getManagerName(loserOwnerId) : `Team ${loserId}`,
                 winnerName: winnerOwnerId ? getManagerName(winnerOwnerId) : `Team ${winnerId}`,
-                loserGave: loserGaveScores.map(s => `${s.name}: ${s.eliteWeeks} top-${s.topN}`),
-                loserGot: loserGotScores.map(s => `${s.name}: ${s.eliteWeeks} top-${s.topN}`),
-                loserGaveElite,
-                loserGotElite,
-                diff: Math.abs(loserNet),
-                bestGaveAway: Math.max(...loserGaveScores.map(s => s.eliteWeeks))
+                loserGave: loserGaveScores.map(s => `${s.name} ${s.rankLabel}`),
+                loserGot: loserGotScores.map(s => `${s.name} ${s.rankLabel}`),
+                loserBestGave: Math.round(loserBestGave),
+                loserBestGot: Math.round(loserBestGot),
+                rankDiff: Math.round(loserValue)
             });
         });
     }
 
-    // Sort by: biggest differential, then by best player given away
-    tradeResults.sort((a, b) => b.diff - a.diff || b.bestGaveAway - a.bestGaveAway);
+    // Sort by biggest rank differential
+    tradeResults.sort((a, b) => b.rankDiff - a.rankDiff);
 
     if (tradeResults.length === 0) {
         container.innerHTML = '<p class="text-gray-400 text-sm">No player-for-player trades found, or all trades were roughly even.</p>';
@@ -577,12 +562,12 @@ function renderWorstTrades() {
                     <span class="text-xs text-gray-400 whitespace-nowrap">${t.season} Wk ${t.week}</span>
                 </div>
                 <div class="text-xs text-gray-400 space-y-1">
-                    <div><span class="text-sleeper-danger">Gave away:</span> ${t.loserGave.join(', ')} <span class="text-gray-500">(${t.loserGaveElite} elite wks)</span></div>
-                    <div><span class="text-sleeper-success">Received:</span> ${t.loserGot.join(', ')} <span class="text-gray-500">(${t.loserGotElite} elite wks)</span></div>
+                    <div><span class="text-sleeper-danger">Gave away:</span> ${t.loserGave.join(', ')}</div>
+                    <div><span class="text-sleeper-success">Received:</span> ${t.loserGot.join(', ')}</div>
                 </div>
                 <div class="flex items-center justify-between mt-2">
                     <span class="text-xs text-gray-500">Traded with ${t.winnerName}</span>
-                    <span class="text-sm font-bold text-sleeper-danger">-${t.diff} elite wks</span>
+                    <span class="text-sm font-bold text-sleeper-danger">${t.rankDiff} rank gap</span>
                 </div>
             </div>
         `;
