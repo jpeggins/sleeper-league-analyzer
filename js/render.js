@@ -56,6 +56,87 @@ function renderResults() {
     renderTradeVolume();
     renderWorstTrades();
     renderKingmaker();
+    renderKeepers();
+}
+
+function renderKeepers() {
+    const container = document.getElementById('keepers');
+    const season = getLatestDraftedSeason();
+    if (!season) {
+        container.innerHTML = '<p class="text-gray-400 text-sm">No drafted season found to evaluate keepers.</p>';
+        return;
+    }
+    const keeperYear = String(parseInt(season) + 1);
+
+    // Update the section subtitle: drafted year -> keepable year.
+    const subtitle = document.getElementById('keepers-season');
+    if (subtitle) subtitle.textContent = `drafted ${season}, keepable ${keeperYear}`;
+
+    const keepers = computeKeeperEligible(season);
+    if (keepers.length === 0) {
+        container.innerHTML = `<p class="text-gray-400 text-sm">No keeper-eligible players found from the ${season} draft. Players must have been drafted and stayed continuously rostered (trades allowed, drops to free agency are not).</p>`;
+        return;
+    }
+
+    // Group by final owner (the manager who holds the keeper right).
+    const byOwner = {};
+    keepers.forEach(k => {
+        const ownerId = k.finalOwnerId || 'unknown';
+        if (!byOwner[ownerId]) byOwner[ownerId] = [];
+        byOwner[ownerId].push(k);
+    });
+
+    // Sort each owner's players by keeper round (cheapest/best first), then draft round.
+    Object.values(byOwner).forEach(list => {
+        list.sort((a, b) => a.keeperRound - b.keeperRound || a.draftRound - b.draftRound);
+    });
+
+    // Sort owners by number of eligible keepers (desc).
+    const owners = Object.entries(byOwner).sort((a, b) => b[1].length - a[1].length);
+
+    const totalCount = keepers.length;
+    const items = owners.map(([ownerId, list]) => {
+        const name = getManagerName(ownerId);
+        const rows = list.map(k => {
+            const pos = getPlayerPosition(k.playerId) || '??';
+            const capNote = k.capped ? ` <span class="text-sleeper-warning" title="Would be higher than round 1; capped at round 1">(capped)</span>` : '';
+            let tradeNote = '';
+            if (k.wasTraded) {
+                const fromName = getManagerName(k.originalOwnerId);
+                tradeNote = `<div class="text-xs text-sleeper-highlight mt-0.5">Acquired via trade from ${fromName} (drafted by them Rd ${k.draftRound})</div>`;
+            }
+            return `
+                <div class="bg-sleeper-card rounded-lg p-3">
+                    <div class="flex items-center justify-between gap-2">
+                        <span class="text-sm font-semibold">${getPlayerName(k.playerId)} <span class="text-xs text-sleeper-accent">${pos}</span></span>
+                        <span class="text-xs whitespace-nowrap">
+                            <span class="text-gray-400">Rd ${k.draftRound}</span>
+                            <span class="text-gray-500 mx-1">→</span>
+                            <span class="text-sleeper-success font-bold">Keeper Rd ${k.keeperRound}</span>${capNote}
+                        </span>
+                    </div>
+                    ${tradeNote}
+                </div>
+            `;
+        }).join('');
+
+        return `
+            <div class="bg-sleeper-dark rounded-lg p-4">
+                <div class="flex items-center justify-between mb-3">
+                    <span class="font-bold text-sleeper-accent">${name}</span>
+                    <span class="text-xs text-gray-400">${list.length} eligible</span>
+                </div>
+                <div class="space-y-2">${rows}</div>
+            </div>
+        `;
+    });
+
+    const header = `<p class="text-xs text-gray-500 mb-3">${totalCount} keeper-eligible player${totalCount === 1 ? '' : 's'} across ${owners.length} team${owners.length === 1 ? '' : 's'} for ${season}.</p>`;
+    container.innerHTML = header;
+    const listWrap = document.createElement('div');
+    listWrap.className = 'space-y-3';
+    renderCollapsible(listWrap, items, 6);
+    container.appendChild(listWrap);
 }
 
 function renderDraftHits() {
